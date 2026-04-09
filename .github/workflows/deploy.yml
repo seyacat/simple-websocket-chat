@@ -4,8 +4,6 @@ name: Deploy simple-websocket-chat
 on:
   push:
     branches: ["main"]
-    paths:
-      - 'simple-websocket-chat/**'
 
   workflow_dispatch:
 
