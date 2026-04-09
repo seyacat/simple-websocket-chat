@@ -2,6 +2,10 @@
 
 A peer-to-peer IRC-like chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://closer.click:4000`.
 
+## 🌐 Live Demo
+
+**https://seyacat.github.io/Simple-websocket/simple-websocket-chat/**
+
 ## Features
 
 - **Real-time messaging** - Send and receive messages in public chat rooms
