@@ -1,7 +1,7 @@
 <template>
   <div v-if="show" class="nickname-modal-overlay">
     <div class="nickname-modal">
-      <h2>Welcome to IRC Chat</h2>
+      <h2>Welcome to Closer Click Chat</h2>
       <p>Enter your nickname to get started</p>
 
       <input

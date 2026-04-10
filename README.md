@@ -1,6 +1,6 @@
-# IRC Chat - simple-websocket-chat
+# Closer Click Chat - simple-websocket-chat
 
-A peer-to-peer IRC-like chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://closer.click:4000`.
+A peer-to-peer Closer Click chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://closer.click:4000`.
 
 ## 🌐 Live Demo
 

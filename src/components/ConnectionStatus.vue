@@ -1,7 +1,7 @@
 <template>
   <div class="connection-status">
     <div class="status-left">
-      <h1>💬 IRC Chat</h1>
+      <h1>💬 Closer Click Chat</h1>
     </div>
 
     <div class="status-center">
