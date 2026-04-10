@@ -4,7 +4,7 @@ A peer-to-peer IRC-like chat application built with Vue 3 + Vite, using the WebS
 
 ## 🌐 Live Demo
 
-**https://seyacat.github.io/Simple-websocket/simple-websocket-chat/**
+**https://seyacat.github.io/simple-websocket-chat/**
 
 ## Features
 
