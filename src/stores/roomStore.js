@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useConnectionStore } from './connectionStore'
+import { sanitizeMessage, sanitizeNickname } from '../utils/sanitize'
 
 export const useRoomStore = defineStore('room', () => {
   const connectionStore = useConnectionStore()
@@ -243,15 +244,18 @@ export const useRoomStore = defineStore('room', () => {
   const handleChatMessage = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+    const sanitizedText = sanitizeMessage(payload.text)
+
     // Update member nickname if known
     const member = members.value.find(m => m.token === fromToken)
     if (member) {
-      member.nickname = payload.nickname
+      member.nickname = sanitizedNickname
       member.lastSeen = Date.now()
     } else {
       members.value.push({
         token: fromToken,
-        nickname: payload.nickname,
+        nickname: sanitizedNickname,
         lastSeen: Date.now(),
         isMe: false
       })
@@ -261,9 +265,9 @@ export const useRoomStore = defineStore('room', () => {
     messages.value.push({
       id: crypto.randomUUID(),
       from: fromToken,
-      nickname: payload.nickname,
+      nickname: sanitizedNickname,
       type: 'chat',
-      text: payload.text,
+      text: sanitizedText,
       timestamp: payload.timestamp || Date.now(),
       isMe: false
     })
@@ -272,15 +276,17 @@ export const useRoomStore = defineStore('room', () => {
   const handleJoinAnnounce = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+
     // Upsert member
     let member = members.value.find(m => m.token === fromToken)
     if (member) {
-      member.nickname = payload.nickname
+      member.nickname = sanitizedNickname
       member.lastSeen = Date.now()
     } else {
       members.value.push({
         token: fromToken,
-        nickname: payload.nickname,
+        nickname: sanitizedNickname,
         lastSeen: Date.now(),
         isMe: false
       })
@@ -291,7 +297,7 @@ export const useRoomStore = defineStore('room', () => {
       id: crypto.randomUUID(),
       from: 'system',
       type: 'system',
-      text: `${payload.nickname} joined`,
+      text: `${sanitizedNickname} joined`,
       timestamp: Date.now()
     })
 
@@ -307,6 +313,8 @@ export const useRoomStore = defineStore('room', () => {
   const handleLeaveAnnounce = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+
     // Remove member
     members.value = members.value.filter(m => m.token !== fromToken)
 
@@ -315,7 +323,7 @@ export const useRoomStore = defineStore('room', () => {
       id: crypto.randomUUID(),
       from: 'system',
       type: 'system',
-      text: `${payload.nickname} left`,
+      text: `${sanitizedNickname} left`,
       timestamp: Date.now()
     })
   }
@@ -323,15 +331,17 @@ export const useRoomStore = defineStore('room', () => {
   const handleHeartbeat = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+
     // Update or add member
     let member = members.value.find(m => m.token === fromToken)
     if (member) {
-      member.nickname = payload.nickname
+      member.nickname = sanitizedNickname
       member.lastSeen = Date.now()
     } else {
       members.value.push({
         token: fromToken,
-        nickname: payload.nickname,
+        nickname: sanitizedNickname,
         lastSeen: Date.now(),
         isMe: false
       })
@@ -341,15 +351,17 @@ export const useRoomStore = defineStore('room', () => {
   const handleHeartbeatAck = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+
     // Update member
     let member = members.value.find(m => m.token === fromToken)
     if (member) {
-      member.nickname = payload.nickname
+      member.nickname = sanitizedNickname
       member.lastSeen = Date.now()
     } else {
       members.value.push({
         token: fromToken,
-        nickname: payload.nickname,
+        nickname: sanitizedNickname,
         lastSeen: Date.now(),
         isMe: false
       })

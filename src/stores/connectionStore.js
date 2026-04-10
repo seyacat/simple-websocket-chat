@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getWebSocketProxyClient } from '../services/WebSocketProxyClient'
+import { sanitizeNickname } from '../utils/sanitize'
 
 export const useConnectionStore = defineStore('connection', () => {
   // Get singleton WebSocket client
@@ -11,7 +12,7 @@ export const useConnectionStore = defineStore('connection', () => {
   const isConnected = ref(false)
   const connectionError = ref(null)
   const wsUrl = ref(import.meta.env.VITE_WS_URL || 'wss://closer.click:4000')
-  const nickname = ref(localStorage.getItem('chat_nickname') || '')
+  const nickname = ref(sanitizeNickname(localStorage.getItem('chat_nickname') || ''))
   const nicknameSet = computed(() => nickname.value.trim().length > 0)
 
   let handlersSetup = false
@@ -43,7 +44,7 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   const setNickname = (name) => {
-    nickname.value = name.trim()
+    nickname.value = sanitizeNickname(name.trim())
     localStorage.setItem('chat_nickname', nickname.value)
   }
 
