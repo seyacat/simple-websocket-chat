@@ -19,7 +19,7 @@
 
     <div class="room-items">
       <div
-        v-for="room in rooms.value"
+        v-for="room in roomStore.rooms"
         :key="room.name"
         :class="['room-item', { active: roomStore.currentRoom === room.name }]"
       >
