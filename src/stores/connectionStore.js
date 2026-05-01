@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getWebSocketProxyClient } from '../services/WebSocketProxyClient'
+import { getWebSocketProxyClient } from '@gatoseya/closer-click-proxy-client'
 import { sanitizeNickname } from '../utils/sanitize'
 
 export const useConnectionStore = defineStore('connection', () => {
@@ -58,7 +58,7 @@ export const useConnectionStore = defineStore('connection', () => {
   }
 
   const setupProxyEventHandlers = () => {
-    wsProxyClient.on('token_assigned', (assignedToken) => {
+    wsProxyClient.on('token', (assignedToken) => {
       token.value = assignedToken
     })
 
@@ -77,29 +77,31 @@ export const useConnectionStore = defineStore('connection', () => {
       console.error('WebSocket error:', error)
     })
 
-    wsProxyClient.on('message', (fromToken, message, timestamp, parsedMessage) => {
+    wsProxyClient.on('message', (fromToken, payload) => {
+      // payload may be a parsed object or string. roomStore expects the raw string.
+      const raw = typeof payload === 'string' ? payload : JSON.stringify(payload)
       // Lazy import to avoid circular dependency
       import('./roomStore.js').then(mod => {
         const roomStore = mod.useRoomStore()
-        roomStore.handleIncomingMessage(fromToken, message)
+        roomStore.handleIncomingMessage(fromToken, raw)
       }).catch(() => {})
     })
 
-    wsProxyClient.on('peer_disconnected', (peerToken, timestamp, channel) => {
+    wsProxyClient.on('peer_disconnected', (peerToken, channel) => {
       import('./roomStore.js').then(mod => {
         const roomStore = mod.useRoomStore()
         roomStore.handlePeerDisconnected(peerToken, channel)
       }).catch(() => {})
     })
 
-    wsProxyClient.on('peer_joined', (peerToken, channel) => {
+    wsProxyClient.on('channel_joined', (channel, peerToken) => {
       import('./roomStore.js').then(mod => {
         const roomStore = mod.useRoomStore()
         roomStore.handlePeerJoined(peerToken, channel)
       }).catch(() => {})
     })
 
-    wsProxyClient.on('peer_left', (peerToken, channel) => {
+    wsProxyClient.on('channel_left', (channel, peerToken) => {
       import('./roomStore.js').then(mod => {
         const roomStore = mod.useRoomStore()
         roomStore.handlePeerLeft(peerToken, channel)
