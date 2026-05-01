@@ -11,7 +11,7 @@ export const useConnectionStore = defineStore('connection', () => {
   const token = ref(null)
   const isConnected = ref(false)
   const connectionError = ref(null)
-  const wsUrl = ref(import.meta.env.VITE_WS_URL || 'wss://closer.click:4000')
+  const wsUrl = ref(import.meta.env.VITE_WS_URL || 'wss://proxy.closer.click')
   const nickname = ref(sanitizeNickname(localStorage.getItem('chat_nickname') || ''))
   const nicknameSet = computed(() => nickname.value.trim().length > 0)
 

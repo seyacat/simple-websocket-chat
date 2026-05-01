@@ -1,6 +1,6 @@
 # Closer Click Chat - simple-websocket-chat
 
-A peer-to-peer Closer Click chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://closer.click:4000`.
+A peer-to-peer Closer Click chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://proxy.closer.click`.
 
 ## 🌐 Live Demo
 
@@ -38,7 +38,7 @@ npm run preview
 Configure the WebSocket server URL in `.env`:
 
 ```
-VITE_WS_URL=wss://closer.click:4000
+VITE_WS_URL=wss://proxy.closer.click
 ```
 
 For local development, use:
