@@ -2,7 +2,11 @@
   <div v-if="roomStore.isInRoom" class="chat-room">
     <!-- Header -->
     <div class="chat-header">
+      <button class="small mobile-only back-btn" @click="$emit('back')" title="Rooms">←</button>
       <h2>#{{ roomStore.currentRoom }}</h2>
+      <button class="small mobile-only members-btn" @click="$emit('show-members')" :title="`Members (${roomStore.members.length})`">
+        👥 {{ roomStore.members.length }}
+      </button>
       <button @click="leaveRoom" class="danger small">Leave</button>
     </div>
 
@@ -50,6 +54,8 @@
 <script setup>
 import { ref, onUpdated, nextTick } from 'vue'
 import { useRoomStore } from '../stores/roomStore'
+
+defineEmits(['back', 'show-members'])
 
 const roomStore = useRoomStore()
 
@@ -230,5 +236,41 @@ button.danger {
   flex: 1;
   color: var(--color-text-secondary);
   font-size: 1.2em;
+}
+
+.mobile-only { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-only { display: inline-flex; }
+  .chat-header {
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
+  }
+  .chat-header h2 {
+    font-size: 1.05em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .back-btn, .members-btn {
+    flex-shrink: 0;
+  }
+  .messages {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+  .chat-message { max-width: 85%; }
+  .chat-input-area {
+    padding: var(--spacing-sm);
+    gap: var(--spacing-xs);
+    padding-bottom: calc(var(--spacing-sm) + env(safe-area-inset-bottom, 0));
+  }
+  .chat-input {
+    font-size: 16px; /* evita zoom en iOS */
+    padding: var(--spacing-sm);
+    rows: 1;
+  }
+  .chat-input-area button {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
 }
 </style>

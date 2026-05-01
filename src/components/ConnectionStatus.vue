@@ -153,17 +153,33 @@ button.small:hover {
 }
 
 @media (max-width: 768px) {
-  .status-left h1 {
-    font-size: 1.2em;
+  .connection-status {
+    padding: var(--spacing-sm) var(--spacing-md);
+    gap: var(--spacing-sm);
   }
-
+  .status-left h1 {
+    font-size: 1.05em;
+    white-space: nowrap;
+  }
+  .status-center {
+    flex: 0;
+  }
+  .status-indicator {
+    font-size: 0.75em;
+  }
   .status-right {
     gap: var(--spacing-sm);
     font-size: 0.8em;
   }
-
   .token-display {
     display: none;
+  }
+  .nickname-display .label {
+    max-width: 100px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
   }
 }
 </style>

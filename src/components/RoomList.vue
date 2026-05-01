@@ -106,6 +106,17 @@ const joinRoomClick = async (name) => {
   overflow: hidden;
 }
 
+@media (max-width: 768px) {
+  .room-list {
+    max-width: 100%;
+    min-width: 0;
+    border-right: none;
+  }
+  .create-input { font-size: 16px; }
+  .room-item { padding: var(--spacing-md); }
+  .join-btn { padding: var(--spacing-xs) var(--spacing-sm); font-size: 0.85em; }
+}
+
 .room-header {
   display: flex;
   justify-content: space-between;

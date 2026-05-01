@@ -92,7 +92,7 @@ const submit = () => {
   width: 100%;
   padding: var(--spacing-sm) var(--spacing-md);
   margin-bottom: var(--spacing-md);
-  font-size: 1em;
+  font-size: 16px;
   box-sizing: border-box;
 }
 

@@ -1,6 +1,7 @@
 <template>
   <div v-if="roomStore.isInRoom" class="member-list">
     <div class="member-header">
+      <button class="small mobile-only back-btn" @click="$emit('back')" title="Back to chat">←</button>
       <h3>Members ({{ roomStore.members.length }})</h3>
     </div>
 
@@ -26,6 +27,8 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoomStore } from '../stores/roomStore'
+
+defineEmits(['back'])
 
 const roomStore = useRoomStore()
 
@@ -59,9 +62,27 @@ const sortedMembers = computed(() => {
   overflow: hidden;
 }
 
+.member-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
 .member-header h3 {
-  margin: 0 0 var(--spacing-md) 0;
+  margin: 0;
   font-size: 1.05em;
+}
+
+.mobile-only { display: none; }
+
+@media (max-width: 768px) {
+  .member-list {
+    max-width: 100%;
+    min-width: 0;
+    border-left: none;
+  }
+  .mobile-only { display: inline-flex; }
 }
 
 .member-items {
