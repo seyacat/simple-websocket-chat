@@ -16,6 +16,7 @@ function setupStores({ token = 'ME01', nickname = 'me' } = {}) {
     unpublish: vi.fn().mockResolvedValue(),
     listChannel: vi.fn().mockResolvedValue([]),
     channelCount: vi.fn().mockResolvedValue(0),
+    listChannels: vi.fn().mockResolvedValue([]),
     send: vi.fn().mockResolvedValue()
   }
 
@@ -243,32 +244,59 @@ describe('roomStore — presencia con eventos del proxy', () => {
   })
 })
 
-describe('roomStore — listPublicRooms usa channelCount', () => {
-  it('llama a wsProxyClient.channelCount por sala y guarda el conteo', async () => {
+describe('roomStore — listPublicRooms (descubrimiento dinámico)', () => {
+  it('descubre salas dinámicas además de las default y muestra counts del servidor', async () => {
     const { room, connection } = setupStores()
-    connection.wsProxyClient.channelCount
-      .mockResolvedValueOnce(3)
-      .mockResolvedValueOnce(7)
+    connection.wsProxyClient.listChannels.mockResolvedValue([
+      { name: 'chat_room_general', count: 3 },
+      { name: 'chat_room_prueba', count: 1 }
+    ])
 
     await room.listPublicRooms()
 
-    expect(connection.wsProxyClient.channelCount).toHaveBeenCalledWith('chat_room_general')
-    expect(connection.wsProxyClient.channelCount).toHaveBeenCalledWith('chat_room_random')
+    expect(connection.wsProxyClient.listChannels).toHaveBeenCalledWith({ prefix: 'chat_room_' })
 
-    const general = room.rooms.find(r => r.name === 'general')
-    const random = room.rooms.find(r => r.name === 'random')
-    expect(general.memberCount).toBe(3)
-    expect(random.memberCount).toBe(7)
+    const names = room.rooms.map(r => r.name)
+    expect(names).toContain('general')
+    expect(names).toContain('random')   // default mantenida aunque no esté en el server
+    expect(names).toContain('prueba')   // descubierta dinámicamente
+
+    expect(room.rooms.find(r => r.name === 'general').memberCount).toBe(3)
+    expect(room.rooms.find(r => r.name === 'random').memberCount).toBe(0)
+    expect(room.rooms.find(r => r.name === 'prueba').memberCount).toBe(1)
   })
 
-  it('si channelCount falla, deja memberCount en 0', async () => {
+  it('mantiene defaults primero y ordena las dinámicas alfabéticamente', async () => {
     const { room, connection } = setupStores()
-    connection.wsProxyClient.channelCount.mockRejectedValue(new Error('boom'))
+    connection.wsProxyClient.listChannels.mockResolvedValue([
+      { name: 'chat_room_zzz', count: 1 },
+      { name: 'chat_room_aaa', count: 1 },
+      { name: 'chat_room_general', count: 5 }
+    ])
 
     await room.listPublicRooms()
 
-    for (const r of room.rooms) {
-      expect(r.memberCount).toBe(0)
-    }
+    const names = room.rooms.map(r => r.name)
+    expect(names.slice(0, 2)).toEqual(['general', 'random'])
+    expect(names.slice(2)).toEqual(['aaa', 'zzz'])
+  })
+
+  it('preserva la sala actual aunque no esté en el directorio del servidor', async () => {
+    const { room, connection } = setupStores()
+    room.currentRoom = 'mi-sala'
+    connection.wsProxyClient.listChannels.mockResolvedValue([])
+
+    await room.listPublicRooms()
+
+    const miSala = room.rooms.find(r => r.name === 'mi-sala')
+    expect(miSala).toBeTruthy()
+    expect(miSala.memberCount).toBe(1)
+  })
+
+  it('si listChannels falla, no rompe (ya catcheado)', async () => {
+    const { room, connection } = setupStores()
+    connection.wsProxyClient.listChannels.mockRejectedValue(new Error('boom'))
+
+    await expect(room.listPublicRooms()).resolves.toBeUndefined()
   })
 })

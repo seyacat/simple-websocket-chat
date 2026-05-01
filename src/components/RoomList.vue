@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoomStore } from '../stores/roomStore'
 
 const roomStore = useRoomStore()
@@ -46,8 +46,21 @@ const roomStore = useRoomStore()
 const newRoomName = ref('')
 const error = ref('')
 
+let pollInterval = null
+
 onMounted(() => {
   roomStore.listPublicRooms()
+  // Poll periódico para mantener counts y descubrir salas creadas por otros
+  pollInterval = setInterval(() => {
+    roomStore.listPublicRooms()
+  }, 10000)
+})
+
+onUnmounted(() => {
+  if (pollInterval) {
+    clearInterval(pollInterval)
+    pollInterval = null
+  }
 })
 
 const refreshRooms = async () => {

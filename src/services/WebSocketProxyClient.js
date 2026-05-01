@@ -379,6 +379,9 @@ export class WebSocketProxyClient {
       case 'channel_count':
         this.handleChannelCount(rest);
         break;
+      case 'channels_list':
+        this.handleChannelsList(rest);
+        break;
       case 'joined':
         this.handleJoined(rest);
         break;
@@ -479,6 +482,15 @@ export class WebSocketProxyClient {
   handleChannelCount(data) {
     const { channel, count, maxEntries, timestamp } = data;
     this.emit('channel_count', channel, count, maxEntries, timestamp);
+  }
+
+  /**
+   * Handle channels_list response (descubrimiento de canales)
+   * @param {Object} data
+   */
+  handleChannelsList(data) {
+    const { channels, prefix, timestamp } = data;
+    this.emit('channels_list', channels || [], prefix, timestamp);
   }
 
   /**
@@ -902,6 +914,50 @@ export class WebSocketProxyClient {
         }));
       } catch (error) {
         this.off('channel_count', handler);
+        clearTimeout(timeoutId);
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Listar todos los canales activos en el servidor (descubrimiento).
+   * @param {Object} [opts]
+   * @param {string} [opts.prefix] Filtra canales que empiezan con este prefix
+   * @returns {Promise<Array<{name:string, count:number}>>}
+   */
+  listChannels(opts = {}) {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+
+      const requestedPrefix = typeof opts.prefix === 'string' ? opts.prefix : null;
+
+      const handler = (channels, responsePrefix) => {
+        // Match por prefix solicitado (cuando hay prefix) para no resolver con respuestas paralelas
+        if (requestedPrefix !== null && responsePrefix !== requestedPrefix) return;
+        if (requestedPrefix === null && responsePrefix !== undefined) return;
+
+        this.off('channels_list', handler);
+        clearTimeout(timeoutId);
+        resolve(channels);
+      };
+      this.on('channels_list', handler);
+
+      const timeoutId = setTimeout(() => {
+        this.off('channels_list', handler);
+        reject(new Error('Timeout waiting for channels_list'));
+      }, 5000);
+
+      const payload = { type: 'list_channels' };
+      if (requestedPrefix !== null) payload.prefix = requestedPrefix;
+
+      try {
+        this.ws.send(JSON.stringify(payload));
+      } catch (error) {
+        this.off('channels_list', handler);
         clearTimeout(timeoutId);
         reject(error);
       }

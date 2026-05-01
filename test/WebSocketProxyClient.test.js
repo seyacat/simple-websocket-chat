@@ -162,3 +162,55 @@ describe('WebSocketProxyClient — channelCount()', () => {
     await expect(promise).resolves.toBe(7)
   })
 })
+
+describe('WebSocketProxyClient — listChannels()', () => {
+  it('envía list_channels sin prefix y resuelve con channels[]', async () => {
+    const { client, sent } = makeClient()
+    const promise = client.listChannels()
+
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toEqual({ type: 'list_channels' })
+
+    client.processMessage({
+      type: 'channels_list',
+      channels: [{ name: 'a', count: 1 }, { name: 'b', count: 2 }],
+      timestamp: 'T'
+    })
+
+    await expect(promise).resolves.toEqual([{ name: 'a', count: 1 }, { name: 'b', count: 2 }])
+  })
+
+  it('envía list_channels con prefix y solo resuelve cuando el prefix coincide', async () => {
+    const { client, sent } = makeClient()
+    const promise = client.listChannels({ prefix: 'chat_room_' })
+
+    expect(sent[0]).toEqual({ type: 'list_channels', prefix: 'chat_room_' })
+
+    // Respuesta paralela con prefix distinto NO debe resolver
+    client.processMessage({ type: 'channels_list', channels: [], prefix: 'otro_' })
+    // Respuesta sin prefix tampoco debe resolver
+    client.processMessage({ type: 'channels_list', channels: [{ name: 'x', count: 1 }] })
+    // Respuesta con prefix correcto sí
+    client.processMessage({
+      type: 'channels_list',
+      channels: [{ name: 'chat_room_general', count: 1 }],
+      prefix: 'chat_room_'
+    })
+
+    await expect(promise).resolves.toEqual([{ name: 'chat_room_general', count: 1 }])
+  })
+
+  it('rechaza si el ws no está conectado', async () => {
+    const client = new WebSocketProxyClient({ url: 'ws://test', autoReconnect: false })
+    await expect(client.listChannels()).rejects.toThrow(/not connected/i)
+  })
+
+  it('hace timeout si no llega respuesta', async () => {
+    vi.useFakeTimers()
+    const { client } = makeClient()
+    const promise = client.listChannels()
+    vi.advanceTimersByTime(5000)
+    await expect(promise).rejects.toThrow(/timeout/i)
+    vi.useRealTimers()
+  })
+})

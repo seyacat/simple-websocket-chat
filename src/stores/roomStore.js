@@ -95,6 +95,9 @@ export const useRoomStore = defineStore('room', () => {
       startHeartbeat()
       startMemberRefresh()
 
+      // Refrescar lista pública (mi nuevo publish hace que aparezca en el directorio)
+      listPublicRooms().catch(() => {})
+
     } catch (error) {
       console.error('Join room error:', error)
       currentRoom.value = null
@@ -143,6 +146,9 @@ export const useRoomStore = defineStore('room', () => {
         text: `You left #${roomName}`,
         timestamp: Date.now()
       })
+
+      // Refrescar lista pública (mi unpublish puede haber dejado el canal vacío)
+      listPublicRooms().catch(() => {})
 
     } catch (error) {
       console.error('Leave room error:', error)
@@ -520,15 +526,41 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  const ROOM_CHANNEL_PREFIX = 'chat_room_'
+  const DEFAULT_ROOMS = ['general', 'random']
+
   const listPublicRooms = async () => {
     try {
-      for (const room of rooms.value) {
-        try {
-          room.memberCount = await connectionStore.wsProxyClient.channelCount(`chat_room_${room.name}`)
-        } catch (e) {
-          room.memberCount = 0
-        }
+      const channels = await connectionStore.wsProxyClient.listChannels({ prefix: ROOM_CHANNEL_PREFIX })
+
+      // Mapa nombre-de-sala → count desde el servidor
+      const serverRooms = new Map()
+      for (const ch of channels) {
+        const name = ch.name.startsWith(ROOM_CHANNEL_PREFIX)
+          ? ch.name.slice(ROOM_CHANNEL_PREFIX.length)
+          : ch.name
+        serverRooms.set(name, ch.count)
       }
+
+      // Asegurar salas por defecto siempre visibles
+      for (const def of DEFAULT_ROOMS) {
+        if (!serverRooms.has(def)) serverRooms.set(def, 0)
+      }
+
+      // Mantener la sala actual si por algún motivo no aparece (ej: somos el único)
+      if (currentRoom.value && !serverRooms.has(currentRoom.value)) {
+        serverRooms.set(currentRoom.value, 1)
+      }
+
+      // Reconstruir el array preservando el orden: defaults primero, luego el resto ordenado alfabéticamente
+      const others = [...serverRooms.keys()]
+        .filter(n => !DEFAULT_ROOMS.includes(n))
+        .sort()
+
+      rooms.value = [...DEFAULT_ROOMS, ...others].map(name => ({
+        name,
+        memberCount: serverRooms.get(name) ?? 0
+      }))
     } catch (error) {
       console.error('List rooms error:', error)
     }
