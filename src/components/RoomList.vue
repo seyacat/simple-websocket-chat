@@ -53,7 +53,7 @@ onMounted(() => {
   // Poll periódico para mantener counts y descubrir salas creadas por otros
   pollInterval = setInterval(() => {
     roomStore.listPublicRooms()
-  }, 10000)
+  }, 3000)
 })
 
 onUnmounted(() => {
