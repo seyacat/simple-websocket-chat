@@ -9,33 +9,59 @@
       <div
         v-for="member in sortedMembers"
         :key="member.token"
-        :class="['member-item', { offline: isOffline(member) }]"
+        :class="['member-item', { offline: isOffline(member), clickable: !member.isMe && !!member.pubkey }]"
+        :title="!member.isMe && member.pubkey ? tooltipFor(member) : undefined"
+        @click="!member.isMe && member.pubkey ? selectMember(member) : null"
       >
         <div class="member-info">
           <span class="online-dot" :class="{ offline: isOffline(member) }"></span>
           <div class="member-name-block">
-            <span class="member-name">{{ member.nickname }}</span>
+            <span class="member-name">{{ displayName(member) }}</span>
             <span v-if="member.isMe" class="you-badge">(you)</span>
+            <span v-else-if="member.peer && member.peer.rating" class="rating-badge">
+              ★ {{ member.peer.rating }}
+            </span>
           </div>
         </div>
         <span class="member-token">{{ member.token }}</span>
       </div>
     </div>
+
+    <PeerRatingModal
+      :member="selectedMember"
+      @close="selectedMember = null"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useRoomStore } from '../stores/roomStore'
+import PeerRatingModal from './PeerRatingModal.vue'
 
 defineEmits(['back'])
 
 const roomStore = useRoomStore()
+const selectedMember = ref(null)
 
 const staleTime = 3 * 60 * 1000 // 3 minutes
 
 const isOffline = (member) => {
   return !member.isMe && (Date.now() - member.lastSeen) > staleTime
+}
+
+const displayName = (member) => {
+  return member.peer?.nickname || member.nickname
+}
+
+const tooltipFor = (member) => {
+  const rating = member.peer?.rating
+  const base = `Rating: ${rating ? rating + '/5' : 'sin calificar'}`
+  return base + ' — click para detalles'
+}
+
+const selectMember = (member) => {
+  selectedMember.value = member
 }
 
 const sortedMembers = computed(() => {
@@ -44,7 +70,7 @@ const sortedMembers = computed(() => {
     if (a.isMe) return -1
     if (b.isMe) return 1
     // Then by nickname alphabetically
-    return a.nickname.localeCompare(b.nickname)
+    return (a.nickname || '').localeCompare(b.nickname || '')
   })
 })
 </script>
@@ -106,6 +132,19 @@ const sortedMembers = computed(() => {
 
 .member-item:hover {
   background-color: var(--color-surface-variant);
+}
+
+.member-item.clickable {
+  cursor: pointer;
+}
+
+.rating-badge {
+  font-size: 0.75em;
+  background: rgba(245, 179, 1, 0.18);
+  color: #d49a00;
+  padding: 1px 6px;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .member-item.offline {

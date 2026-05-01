@@ -1,7 +1,20 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { Identity } from '@gatoseya/closer-click-identity'
 import { useConnectionStore } from './connectionStore'
 import { sanitizeMessage, sanitizeNickname } from '../utils/sanitize'
+
+let _identity = null
+async function getIdentity () {
+  if (_identity) return _identity
+  try {
+    _identity = await Identity.connect()
+  } catch (e) {
+    console.warn('Identity vault unreachable, identity features disabled:', e)
+    _identity = null
+  }
+  return _identity
+}
 
 export const useRoomStore = defineStore('room', () => {
   const connectionStore = useConnectionStore()
@@ -75,6 +88,8 @@ export const useRoomStore = defineStore('room', () => {
           roomName,
           timestamp: Date.now()
         })
+        // Identidad: retar a los ya presentes
+        for (const t of others) challengePeer(t)
         try {
           await connectionStore.sendMessage(others, joinMsg)
         } catch (e) {
@@ -244,7 +259,91 @@ export const useRoomStore = defineStore('room', () => {
       case 'HEARTBEAT_ACK':
         handleHeartbeatAck(fromToken, payload)
         break
+      case 'IDENTIFY_CHALLENGE':
+        handleIdentifyChallenge(fromToken, payload)
+        break
+      case 'IDENTIFY_RESPONSE':
+        handleIdentifyResponse(fromToken, payload)
+        break
     }
+  }
+
+  // ---- Identity handshake -------------------------------------------------
+
+  const challengePeer = async (peerToken) => {
+    const id = await getIdentity()
+    if (!id) return
+    if (peerToken === connectionStore.token) return
+    try {
+      const { nonce } = await id.makeChallenge()
+      const msg = formatMessage('IDENTIFY_CHALLENGE', { nonce })
+      await connectionStore.sendMessage([peerToken], msg)
+    } catch (e) {
+      console.warn('challengePeer failed:', e)
+    }
+  }
+
+  const handleIdentifyChallenge = async (fromToken, payload) => {
+    const id = await getIdentity()
+    if (!id || !payload?.nonce) return
+    try {
+      const response = await id.signChallenge(payload.nonce)
+      const msg = formatMessage('IDENTIFY_RESPONSE', response)
+      await connectionStore.sendMessage([fromToken], msg)
+    } catch (e) {
+      console.warn('signChallenge failed:', e)
+    }
+  }
+
+  const handleIdentifyResponse = async (fromToken, payload) => {
+    const id = await getIdentity()
+    if (!id || !payload?.publickey) return
+    try {
+      const result = await id.verifyResponse(payload)
+      if (!result.ok) return
+      const member = members.value.find(m => m.token === fromToken)
+      if (member) {
+        member.pubkey = result.publickey
+        member.peer = result.peer || null
+      }
+    } catch (e) {
+      console.warn('verifyResponse failed:', e)
+    }
+  }
+
+  /** Refresh peer info (rating/custom nickname) for all known members. */
+  const refreshPeerInfo = async () => {
+    const id = await getIdentity()
+    if (!id) return
+    for (const m of members.value) {
+      if (!m.pubkey) continue
+      try {
+        const peer = await id.getPeer(m.pubkey)
+        m.peer = peer
+      } catch (_) {}
+    }
+  }
+
+  /** Set a rating for a peer and refresh local cache. */
+  const ratePeer = async (pubkey, rating, notes) => {
+    const id = await getIdentity()
+    if (!id) throw new Error('Identity vault not available')
+    const updated = await id.setRating(pubkey, rating, notes)
+    for (const m of members.value) {
+      if (m.pubkey === pubkey) m.peer = updated
+    }
+    return updated
+  }
+
+  /** Set a custom nickname for a peer. */
+  const setPeerNickname = async (pubkey, nickname) => {
+    const id = await getIdentity()
+    if (!id) throw new Error('Identity vault not available')
+    const updated = await id.setNickname(pubkey, nickname)
+    for (const m of members.value) {
+      if (m.pubkey === pubkey) m.peer = updated
+    }
+    return updated
   }
 
   const handleChatMessage = (fromToken, payload) => {
@@ -297,6 +396,9 @@ export const useRoomStore = defineStore('room', () => {
         isMe: false
       })
     }
+
+    // Iniciar handshake de identidad
+    challengePeer(fromToken)
 
     // System message
     messages.value.push({
@@ -582,6 +684,9 @@ export const useRoomStore = defineStore('room', () => {
     handlePeerJoined,
     handlePeerLeft,
     refreshMembers,
-    listPublicRooms
+    listPublicRooms,
+    ratePeer,
+    setPeerNickname,
+    refreshPeerInfo
   }
 })
