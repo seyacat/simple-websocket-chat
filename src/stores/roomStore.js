@@ -310,6 +310,71 @@ export const useRoomStore = defineStore('room', () => {
     connectionStore.sendMessage([fromToken], heartbeatMsg).catch(() => {})
   }
 
+  const handlePeerDisconnected = (peerToken, channel) => {
+    if (!currentRoom.value) return
+    // Si vino con canal, ignorar si no es el de esta sala
+    if (channel && channel !== channelName.value) return
+
+    const member = members.value.find(m => m.token === peerToken)
+    if (!member) return
+
+    members.value = members.value.filter(m => m.token !== peerToken)
+
+    messages.value.push({
+      id: crypto.randomUUID(),
+      from: 'system',
+      type: 'system',
+      text: `${member.nickname} disconnected`,
+      timestamp: Date.now()
+    })
+  }
+
+  const handlePeerJoined = (peerToken, channel) => {
+    if (!currentRoom.value) return
+    if (channel !== channelName.value) return
+    if (peerToken === connectionStore.token) return
+
+    // Upsert placeholder; el nickname real llega vía JOIN_ANNOUNCE/HEARTBEAT_ACK
+    const existing = members.value.find(m => m.token === peerToken)
+    if (existing) {
+      existing.lastSeen = Date.now()
+    } else {
+      members.value.push({
+        token: peerToken,
+        nickname: peerToken,
+        lastSeen: Date.now(),
+        isMe: false
+      })
+    }
+
+    // Saludar al recién llegado con HEARTBEAT_ACK para que aprenda nuestro nickname
+    // sin esperar al primer heartbeat (30s) o JOIN_ANNOUNCE.
+    const ackMsg = formatMessage('HEARTBEAT_ACK', {
+      nickname: connectionStore.nickname,
+      roomName: currentRoom.value,
+      timestamp: Date.now()
+    })
+    connectionStore.sendMessage([peerToken], ackMsg).catch(() => {})
+  }
+
+  const handlePeerLeft = (peerToken, channel) => {
+    if (!currentRoom.value) return
+    if (channel !== channelName.value) return
+
+    const member = members.value.find(m => m.token === peerToken)
+    if (!member) return
+
+    members.value = members.value.filter(m => m.token !== peerToken)
+
+    messages.value.push({
+      id: crypto.randomUUID(),
+      from: 'system',
+      type: 'system',
+      text: `${member.nickname} left`,
+      timestamp: Date.now()
+    })
+  }
+
   const handleLeaveAnnounce = (fromToken, payload) => {
     if (payload.roomName !== currentRoom.value) return
 
@@ -442,9 +507,10 @@ export const useRoomStore = defineStore('room', () => {
 
   const startMemberRefresh = () => {
     if (refreshInterval) return
+    // Red de seguridad — los eventos joined/left/disconnected del proxy cubren tiempo real.
     refreshInterval = setInterval(() => {
       refreshMembers()
-    }, 60000) // 60 seconds
+    }, 5 * 60 * 1000) // 5 minutos
   }
 
   const stopMemberRefresh = () => {
@@ -458,8 +524,7 @@ export const useRoomStore = defineStore('room', () => {
     try {
       for (const room of rooms.value) {
         try {
-          const tokens = await connectionStore.wsProxyClient.listChannel(`chat_room_${room.name}`)
-          room.memberCount = tokens.length
+          room.memberCount = await connectionStore.wsProxyClient.channelCount(`chat_room_${room.name}`)
         } catch (e) {
           room.memberCount = 0
         }
@@ -481,6 +546,9 @@ export const useRoomStore = defineStore('room', () => {
     createRoom,
     sendChatMessage,
     handleIncomingMessage,
+    handlePeerDisconnected,
+    handlePeerJoined,
+    handlePeerLeft,
     refreshMembers,
     listPublicRooms
   }

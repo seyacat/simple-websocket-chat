@@ -85,6 +85,27 @@ export const useConnectionStore = defineStore('connection', () => {
       }).catch(() => {})
     })
 
+    wsProxyClient.on('peer_disconnected', (peerToken, timestamp, channel) => {
+      import('./roomStore.js').then(mod => {
+        const roomStore = mod.useRoomStore()
+        roomStore.handlePeerDisconnected(peerToken, channel)
+      }).catch(() => {})
+    })
+
+    wsProxyClient.on('peer_joined', (peerToken, channel) => {
+      import('./roomStore.js').then(mod => {
+        const roomStore = mod.useRoomStore()
+        roomStore.handlePeerJoined(peerToken, channel)
+      }).catch(() => {})
+    })
+
+    wsProxyClient.on('peer_left', (peerToken, channel) => {
+      import('./roomStore.js').then(mod => {
+        const roomStore = mod.useRoomStore()
+        roomStore.handlePeerLeft(peerToken, channel)
+      }).catch(() => {})
+    })
+
     wsProxyClient.on('reconnecting', (attempt, maxAttempts) => {
       console.log(`Reconnecting... (${attempt}/${maxAttempts})`)
     })

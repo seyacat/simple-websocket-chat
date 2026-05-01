@@ -376,6 +376,15 @@ export class WebSocketProxyClient {
       case 'channel_list':
         this.handleChannelList(rest);
         break;
+      case 'channel_count':
+        this.handleChannelCount(rest);
+        break;
+      case 'joined':
+        this.handleJoined(rest);
+        break;
+      case 'left':
+        this.handleLeft(rest);
+        break;
       case 'error':
         this.handleErrorResponse(rest);
         break;
@@ -443,7 +452,7 @@ export class WebSocketProxyClient {
    * @param {Object} data
    */
   handleDisconnected(data) {
-    const { token, timestamp } = data;
+    const { token, timestamp, channel } = data;
 
     // Remove from active connections
     if (this.activeConnections.has(token)) {
@@ -451,8 +460,62 @@ export class WebSocketProxyClient {
       this.emit('unpaired', token, timestamp);
     }
 
-    console.log(`Disconnected from ${token} at ${timestamp}`);
-    this.emit('peer_disconnected', token, timestamp);
+    // Si vino con canal, también actualizar el cache local de suscripciones
+    if (channel && this.channelSubscriptions.has(channel)) {
+      const sub = this.channelSubscriptions.get(channel);
+      if (Array.isArray(sub.tokens)) {
+        sub.tokens = sub.tokens.filter(t => t !== token);
+        sub.count = sub.tokens.length;
+      }
+    }
+
+    this.emit('peer_disconnected', token, timestamp, channel);
+  }
+
+  /**
+   * Handle channel_count response
+   * @param {Object} data
+   */
+  handleChannelCount(data) {
+    const { channel, count, maxEntries, timestamp } = data;
+    this.emit('channel_count', channel, count, maxEntries, timestamp);
+  }
+
+  /**
+   * Handle joined notification (someone published to a channel we're subscribed to)
+   * @param {Object} data
+   */
+  handleJoined(data) {
+    const { token, channel, timestamp } = data;
+
+    // Mantener consistente el cache local de suscripciones
+    if (channel && this.channelSubscriptions.has(channel)) {
+      const sub = this.channelSubscriptions.get(channel);
+      if (Array.isArray(sub.tokens) && !sub.tokens.includes(token)) {
+        sub.tokens.push(token);
+        sub.count = sub.tokens.length;
+      }
+    }
+
+    this.emit('peer_joined', token, channel, timestamp);
+  }
+
+  /**
+   * Handle left notification (someone unpublished from a channel)
+   * @param {Object} data
+   */
+  handleLeft(data) {
+    const { token, channel, timestamp } = data;
+
+    if (channel && this.channelSubscriptions.has(channel)) {
+      const sub = this.channelSubscriptions.get(channel);
+      if (Array.isArray(sub.tokens)) {
+        sub.tokens = sub.tokens.filter(t => t !== token);
+        sub.count = sub.tokens.length;
+      }
+    }
+
+    this.emit('peer_left', token, channel, timestamp);
   }
 
   /**
@@ -796,6 +859,50 @@ export class WebSocketProxyClient {
 
         this.ws.send(JSON.stringify(payload));
       } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Get only the member count of a public channel (no signature required)
+   * @param {string} channelName Channel name
+   * @returns {Promise<number>} Number of active tokens in the channel
+   */
+  channelCount(channelName) {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+
+      if (typeof channelName !== 'string' || channelName.length === 0) {
+        reject(new Error('Invalid channel name'));
+        return;
+      }
+
+      const handler = (responseChannel, count) => {
+        if (responseChannel === channelName) {
+          this.off('channel_count', handler);
+          clearTimeout(timeoutId);
+          resolve(count);
+        }
+      };
+      this.on('channel_count', handler);
+
+      const timeoutId = setTimeout(() => {
+        this.off('channel_count', handler);
+        reject(new Error(`Timeout waiting for channel_count: ${channelName}`));
+      }, 5000);
+
+      try {
+        this.ws.send(JSON.stringify({
+          type: 'channel_count',
+          channel: channelName
+        }));
+      } catch (error) {
+        this.off('channel_count', handler);
+        clearTimeout(timeoutId);
         reject(error);
       }
     });
