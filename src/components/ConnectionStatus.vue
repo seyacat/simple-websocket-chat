@@ -17,9 +17,14 @@
         <span class="token">{{ connectionStore.token }}</span>
       </div>
 
-      <div v-if="connectionStore.nickname" class="nickname-display">
-        <span class="label">@{{ connectionStore.nickname }}</span>
-      </div>
+      <button
+        v-if="connectionStore.nickname"
+        class="nickname-button"
+        @click="settingsOpen = true"
+        title="Editar identidad"
+      >
+        @{{ connectionStore.nickname }}
+      </button>
 
       <button
         v-if="!connectionStore.isConnected"
@@ -29,14 +34,21 @@
         Reconnect
       </button>
     </div>
+
+    <UserSettingsModal
+      :open="settingsOpen"
+      @close="settingsOpen = false"
+    />
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useConnectionStore } from '../stores/connectionStore'
+import UserSettingsModal from './UserSettingsModal.vue'
 
 const connectionStore = useConnectionStore()
+const settingsOpen = ref(false)
 
 const statusText = computed(() => {
   if (connectionStore.isConnected) return 'Connected'
@@ -126,6 +138,20 @@ const reconnect = () => {
   align-items: center;
   gap: var(--spacing-sm);
   font-size: 0.9em;
+}
+
+.nickname-button {
+  background: rgba(255, 255, 255, 0.12);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: var(--border-radius-sm);
+  padding: 0.3em 0.7em;
+  font-size: 0.9em;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.nickname-button:hover {
+  background: rgba(255, 255, 255, 0.25);
 }
 
 .label {
