@@ -1,142 +1,101 @@
-# Closer Click Chat - simple-websocket-chat
+# Closer Click Chat
 
-A peer-to-peer Closer Click chat application built with Vue 3 + Vite, using the WebSocket proxy server at `wss://proxy.closer.click`.
+Aplicación de chat multi-sala P2P-mesh sobre el proxy WebSocket de Closer Click. Vue 3 + Vite + Pinia.
 
-## 🌐 Live Demo
+🌐 Producción: **https://seyacat.github.io/simple-websocket-chat/**
 
-**https://seyacat.github.io/simple-websocket-chat/**
+## Características
 
-## Features
+- **Salas públicas** auto-descubiertas a través de `list_channels` con prefijo.
+- **Sin host por sala**: todos los miembros son peers iguales, publicados en `chat_room_<nombre>`.
+- **Real-time**: el proxy emite `joined` / `left` / `disconnected` a los miembros del canal.
+- **Identidad cross-app** vía vault (mismo keypair en chat, chess, etc.).
+- **Reputación firmada** con web of trust: ratings firmados con ECDSA P-256 que se intercambian automáticamente entre peers de una sala.
+- **Mobile responsive** con vistas single-pane intercambiables (rooms / chat / members).
+- **Tema claro/oscuro** según preferencia del sistema.
 
-- **Real-time messaging** - Send and receive messages in public chat rooms
-- **Room browsing** - Browse available rooms or create your own
-- **Member list** - See who's connected in the current room
-- **Heartbeat protocol** - Keep connections alive and detect stale members
-- **Dark mode** - Auto-respects system theme preference
-- **Offline detection** - Stale members marked as offline (3+ min no heartbeat)
+## Stack y dependencias
 
-## Getting Started
+```jsonc
+{
+  "@gatoseya/closer-click-proxy-client": "^0.1.1",
+  "@gatoseya/closer-click-identity":     "^0.4.0",
+  "vue": "^3", "pinia": "^3"
+}
+```
 
-### Development
+Las dos primeras son las librerías de Closer Click publicadas en npm. Ver su documentación para detalles.
+
+## Desarrollo
 
 ```bash
 npm install
-npm run dev
+npm run dev          # http://localhost:5173/simple-websocket-chat/
+npm run build        # genera dist/
 ```
 
-Opens at `http://localhost:5174`
-
-### Production Build
-
-```bash
-npm run build
-npm run preview
-```
-
-### Environment
-
-Configure the WebSocket server URL in `.env`:
+`.env`:
 
 ```
-VITE_WS_URL=wss://proxy.closer.click
+VITE_WS_URL=wss://proxy.closer.click   # default si no se setea
 ```
 
-For local development, use:
-```
-VITE_WS_URL=ws://localhost:4001
-```
+Para apuntar a un proxy local: `VITE_WS_URL=ws://localhost:4001`.
 
-## Architecture
-
-### Peer-to-Peer Mesh
-
-No central host per room. All members are equal peers:
-
-1. **Join room** → Publish token to `chat_room_<name>` channel
-2. **Send message** → Query channel for member tokens, send to all
-3. **Leave room** → Unpublish from channel
-4. **Heartbeat** → Every 30s keep-alive to maintain channel registration
-5. **Member refresh** → Every 60s query channel to detect departures
-
-### Message Protocol
-
-Wire format: `TYPE|JSON_PAYLOAD`
-
-| Type | Direction | Purpose |
-|------|-----------|---------|
-| `CHAT_MSG` | peer → peers | Chat message |
-| `JOIN_ANNOUNCE` | newcomer → existing | "I just joined" |
-| `LEAVE_ANNOUNCE` | leaver → peers | "I'm leaving" |
-| `HEARTBEAT` | all → all | Keep-alive (30s interval) |
-| `HEARTBEAT_ACK` | reply to JOIN_ANNOUNCE | Confirm existence |
+## Arquitectura
 
 ### Stores (Pinia)
 
-- **connectionStore** - WebSocket lifecycle, token, nickname
-- **roomStore** - Room state, messages, members, protocol handlers
+- **`connectionStore`** — conexión al proxy, token corto, nickname local. Wrapper sobre `getWebSocketProxyClient()`.
+- **`roomStore`** — estado de la sala actual: mensajes, miembros, handshake de identidad, intercambio de reputación. Map reactivo `trustMap` (mis ratings emitidos) para pesar endorsements.
 
-### Components
+### Protocolo de mensajes
 
-- **NicknameModal** - Overlay to set nickname (blocks UI)
-- **ConnectionStatus** - Top bar with connection dot + token + nickname
-- **RoomList** - Left sidebar: browse/create rooms
-- **ChatRoom** - Center: message list + input
-- **MemberList** - Right sidebar: members with online status
+Wire format: `TYPE|JSON_PAYLOAD` viajando como `message` dentro del envelope del proxy.
 
-## Project Structure
+| Type | Dirección | Propósito |
+|------|-----------|-----------|
+| `CHAT_MSG` | peer → peers | Mensaje de chat |
+| `JOIN_ANNOUNCE` | newcomer → existing | "Acabo de entrar" |
+| `LEAVE_ANNOUNCE` | leaver → peers | "Me voy" |
+| `HEARTBEAT` / `HEARTBEAT_ACK` | all → all | Mantener visibilidad |
+| `IDENTIFY_CHALLENGE` | a un peer | Reto firmado para verificar identidad |
+| `IDENTIFY_RESPONSE` | reply | Firma + pubkey |
+| `RATING_QUERY` | broadcast en sala | "¿qué saben de este pubkey?" |
+| `RATING_REPLY` | reply | Mi rating + endorsements firmadas |
 
-```
-src/
-  main.js
-  App.vue
-  style.css / style/theme.css     Global CSS
-  services/
-    WebSocketProxyClient.js        WebSocket client singleton
-  stores/
-    connectionStore.js             Connection + WebSocket mgmt
-    roomStore.js                   Chat protocol + room state
-  components/
-    NicknameModal.vue
-    ConnectionStatus.vue
-    RoomList.vue
-    ChatRoom.vue
-    MemberList.vue
-```
+### Web of trust
 
-## Deployment
+1. Tras unirse a una sala, cada peer recibe `JOIN_ANNOUNCE` y dispara un `IDENTIFY_CHALLENGE` al recién llegado.
+2. El recién llegado responde con `IDENTIFY_RESPONSE` (firmado por su llave privada en el vault). El peer verifica.
+3. Una vez verificado el pubkey, el peer dispara `RATING_QUERY` al resto del cuarto.
+4. Cada respuesta trae `mine` (rating propio firmado) + `endorsements` (ratings firmados de terceros que ese peer haya recolectado).
+5. El vault verifica todas las firmas, dedupea por `(ratedBy, subject)`, y guarda hasta 50 endorsements por subject.
+6. **Display**: rating propio = ★ amarillo. Si no hay propio, se computa promedio ponderado donde el peso de cada endorser es `miRating(endorser) / 5`. Endorsers no calificados → peso 0 → ignorados. Resultado = ★ azul (derivado).
 
-GitHub Actions workflow deploys to GitHub Pages on pushes to `main` (in `simple-websocket-chat/` subdirectory).
+### Componentes
 
-```yaml
-# Triggered when simple-websocket-chat/* changes
-- name: Build
-  run: cd simple-websocket-chat && npm run build
-```
+- `NicknameModal` — gate inicial.
+- `ConnectionStatus` — header con dot de conexión, token, `@nickname` (click → `UserSettingsModal`).
+- `UserSettingsModal` — editar nickname, ver pubkey, exportar/importar identidad (JSON).
+- `RoomList` — sidebar de salas, crear/refrescar.
+- `ChatRoom` — área central: mensajes, input.
+- `MemberList` — sidebar de miembros con badge de rating; hover muestra rating, click abre `PeerRatingModal`.
+- `PeerRatingModal` — calificación 0–5, notas, lista de endorsements firmadas (filtradas a peers que tú calificas), suspicion modifier.
 
-## Key Design Decisions
+## Deploy
 
-1. **No host model** - Simplifies room lifecycle (no "host closed room" scenario)
-2. **Optimistic echo** - Own messages appear immediately without server echo
-3. **Heartbeat + channel refresh** - Dual strategy ensures member list accuracy
-4. **JOIN_ANNOUNCE → HEARTBEAT_ACK** - Solves bootstrap: newcomer gets all nicknames
+GitHub Actions (`.github/workflows/deploy.yml`) publica `dist/` en GitHub Pages al hacer push a `main`.
 
 ## Troubleshooting
 
-### "WebSocket not connected"
-- Check connection status in top bar (green dot = connected)
-- Network tab: verify WebSocket to `closer.click:4000` succeeds
-- Check browser console for errors
+| Síntoma | Diagnóstico |
+|---------|-------------|
+| "WebSocket not connected" | Verifica `wss://proxy.closer.click` desde DevTools → Network. |
+| Identity vault unreachable | El vault vive en `id.closer.click`. Requiere HTTPS para `crypto.subtle`. |
+| No aparece rating al hover | El handshake aún no completó (puede tardar ~1s). |
+| "No puedes enviarte mensajes a ti mismo" | Bug menor que aparece a veces al refrescar — los mensajes siguen funcionando. |
 
-### Messages not sending
-- Verify you're in a room (center panel shows messages)
-- Check that other members exist (member list > 1)
-- Look for error messages below the input
-
-### Room disappears
-- If all members leave or TTL expires (20 min), room ceases to exist
-- All members must actively maintain channel registration via heartbeat
-- Refresh the room list to update member counts
-
-## License
+## Licencia
 
 MIT
