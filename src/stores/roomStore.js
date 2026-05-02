@@ -5,10 +5,15 @@ import { useConnectionStore } from './connectionStore'
 import { sanitizeMessage, sanitizeNickname } from '../utils/sanitize'
 
 let _identity = null
+let _identityReadyHooks = []
 async function getIdentity () {
   if (_identity) return _identity
   try {
     _identity = await Identity.connect()
+    for (const fn of _identityReadyHooks) {
+      try { fn(_identity) } catch (_) {}
+    }
+    _identityReadyHooks = []
   } catch (e) {
     console.warn('Identity vault unreachable, identity features disabled:', e)
     _identity = null
@@ -27,6 +32,8 @@ export const useRoomStore = defineStore('room', () => {
   ])
   const messages = ref([])
   const members = ref([])
+  // Map<pubkey, rating> de peers que yo he calificado, usado para pesar endorsements.
+  const trustMap = ref(new Map())
   const isInRoom = computed(() => !!currentRoom.value)
   const channelName = computed(() => currentRoom.value ? `chat_room_${currentRoom.value}` : null)
 
@@ -265,6 +272,12 @@ export const useRoomStore = defineStore('room', () => {
       case 'IDENTIFY_RESPONSE':
         handleIdentifyResponse(fromToken, payload)
         break
+      case 'RATING_QUERY':
+        handleRatingQuery(fromToken, payload)
+        break
+      case 'RATING_REPLY':
+        handleRatingReply(fromToken, payload)
+        break
     }
   }
 
@@ -306,8 +319,73 @@ export const useRoomStore = defineStore('room', () => {
         member.pubkey = result.publickey
         member.peer = result.peer || null
       }
+      // Una vez verificado, intercambiar reputación del nuevo peer con el resto del cuarto
+      requestRatingsForSubject(result.publickey, fromToken)
     } catch (e) {
       console.warn('verifyResponse failed:', e)
+    }
+  }
+
+  // ---- Rating exchange (web of trust) -------------------------------------
+
+  /**
+   * Pregunta automáticamente al resto de la sala "qué saben sobre este pubkey".
+   * El propio peer es excluido. Se ejecuta una vez tras verificar identidad.
+   */
+  const requestRatingsForSubject = (subjectPubkey, excludeToken) => {
+    if (!subjectPubkey) return
+    const targets = members.value
+      .filter(m => !m.isMe && m.token !== excludeToken && m.pubkey)
+      .map(m => m.token)
+    if (targets.length === 0) return
+    const queryId = crypto.randomUUID()
+    const msg = formatMessage('RATING_QUERY', { queryId, subject: subjectPubkey })
+    connectionStore.sendMessage(targets, msg).catch(() => {})
+  }
+
+  const handleRatingQuery = async (fromToken, payload) => {
+    const id = await getIdentity()
+    if (!id || !payload?.subject || !payload?.queryId) return
+    const fromMember = members.value.find(m => m.token === fromToken)
+    const askerPubkey = fromMember?.pubkey || null
+    try {
+      // Tally even queries that come from unverified askers (rare)
+      if (askerPubkey) await id.recordQuery(askerPubkey, payload.subject)
+      const { mine, endorsements } = await id.getRatingsForSubject(payload.subject)
+      const reply = formatMessage('RATING_REPLY', {
+        queryId: payload.queryId,
+        subject: payload.subject,
+        mine,
+        endorsements
+      })
+      await connectionStore.sendMessage([fromToken], reply)
+    } catch (e) {
+      console.warn('handleRatingQuery failed:', e)
+    }
+  }
+
+  const handleRatingReply = async (fromToken, payload) => {
+    const id = await getIdentity()
+    if (!id || !payload?.subject || !Array.isArray(payload?.endorsements)) return
+    const fromMember = members.value.find(m => m.token === fromToken)
+    const askerPubkey = fromMember?.pubkey || null
+    try {
+      const all = []
+      if (payload.mine && payload.mine.subject === payload.subject) {
+        all.push(payload.mine)
+      }
+      for (const e of payload.endorsements) {
+        if (e && e.subject === payload.subject) all.push(e)
+      }
+      if (all.length === 0) return
+      await id.mergeEndorsements(payload.subject, all, askerPubkey)
+      // Refrescar el peer afectado
+      const peer = await id.getPeer(payload.subject)
+      for (const m of members.value) {
+        if (m.pubkey === payload.subject) m.peer = peer
+      }
+    } catch (e) {
+      console.warn('handleRatingReply failed:', e)
     }
   }
 
@@ -324,6 +402,21 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  /** Refresca el mapa de confianza (mis ratings emitidos). */
+  const refreshTrustMap = async () => {
+    const id = await getIdentity()
+    if (!id) return
+    try {
+      const all = await id.listPeers()
+      const next = new Map()
+      for (const p of all) {
+        const r = p?.myRating?.rating
+        if (typeof r === 'number' && r > 0) next.set(p.publickey, r)
+      }
+      trustMap.value = next
+    } catch (_) {}
+  }
+
   /** Set a rating for a peer and refresh local cache. */
   const ratePeer = async (pubkey, rating, notes) => {
     const id = await getIdentity()
@@ -332,6 +425,7 @@ export const useRoomStore = defineStore('room', () => {
     for (const m of members.value) {
       if (m.pubkey === pubkey) m.peer = updated
     }
+    await refreshTrustMap()
     return updated
   }
 
@@ -687,6 +781,8 @@ export const useRoomStore = defineStore('room', () => {
     listPublicRooms,
     ratePeer,
     setPeerNickname,
-    refreshPeerInfo
+    refreshPeerInfo,
+    refreshTrustMap,
+    trustMap
   }
 })

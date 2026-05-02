@@ -18,9 +18,15 @@
           <div class="member-name-block">
             <span class="member-name">{{ displayName(member) }}</span>
             <span v-if="member.isMe" class="you-badge">(you)</span>
-            <span v-else-if="member.peer && member.peer.rating" class="rating-badge">
-              ★ {{ member.peer.rating }}
-            </span>
+            <template v-else>
+              <span
+                v-if="ratingFor(member).value != null"
+                class="rating-badge"
+                :class="{ derived: ratingFor(member).source === 'derived' }"
+              >
+                ★ {{ ratingFor(member).value.toFixed(ratingFor(member).source === 'derived' ? 1 : 0) }}
+              </span>
+            </template>
           </div>
         </div>
         <span class="member-token">{{ member.token }}</span>
@@ -35,8 +41,9 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoomStore } from '../stores/roomStore'
+import { computeDerivedRating } from '../utils/rating'
 import PeerRatingModal from './PeerRatingModal.vue'
 
 defineEmits(['back'])
@@ -54,11 +61,20 @@ const displayName = (member) => {
   return member.peer?.nickname || member.nickname
 }
 
-const tooltipFor = (member) => {
-  const rating = member.peer?.rating
-  const base = `Rating: ${rating ? rating + '/5' : 'sin calificar'}`
-  return base + ' — click para detalles'
+const ratingFor = (member) => {
+  return computeDerivedRating(member.peer, roomStore.trustMap)
 }
+
+const tooltipFor = (member) => {
+  const r = ratingFor(member)
+  if (r.value == null) return 'Sin calificación — click para detalles'
+  if (r.source === 'mine') return `Tu calificación: ${r.value}/5 — click para detalles`
+  return `Reputación: ${r.value.toFixed(1)}/5 (${r.count} opiniones) — click para detalles`
+}
+
+onMounted(() => {
+  roomStore.refreshTrustMap?.()
+})
 
 const selectMember = (member) => {
   selectedMember.value = member
@@ -145,6 +161,10 @@ const sortedMembers = computed(() => {
   padding: 1px 6px;
   border-radius: 999px;
   white-space: nowrap;
+}
+.rating-badge.derived {
+  background: rgba(52, 152, 219, 0.18);
+  color: #2477b8;
 }
 
 .member-item.offline {

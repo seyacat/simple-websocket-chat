@@ -11,7 +11,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@gatoseya/closer-click-identity": "^0.3.0",
+    "@gatoseya/closer-click-identity": "^0.4.0",
     "@gatoseya/closer-click-proxy-client": "^0.1.1",
     "pinia": "^3.0.4",
     "vue": "^3.5.25"

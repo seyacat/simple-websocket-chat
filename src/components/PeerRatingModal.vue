@@ -58,6 +58,22 @@
           </button>
         </div>
 
+        <div v-if="endorsements.length > 0" class="endorsements">
+          <h4>Opiniones de personas que tú calificas</h4>
+          <ul>
+            <li v-for="e in endorsements" :key="e.ratedBy">
+              <span class="endorsement-rating">★ {{ e.rating }}</span>
+              <span class="endorsement-from">de {{ endorserName(e.ratedBy) }}</span>
+              <span v-if="e.notes" class="endorsement-notes">— {{ e.notes }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <div v-if="suspicion" class="suspicion">
+          ⚠ Te ha consultado por {{ suspicion.queriesMade }} personas; conocías
+          {{ suspicion.queriesKnown }}.
+        </div>
+
         <details class="raw">
           <summary>Pubkey</summary>
           <pre>{{ shortPubkey }}</pre>
@@ -82,6 +98,31 @@ const rating = ref(0)
 const notes = ref('')
 const customNickname = ref('')
 const saving = ref(false)
+
+const endorsements = computed(() => {
+  const list = props.member?.peer?.endorsements
+  if (!Array.isArray(list)) return []
+  // Solo opiniones de personas que yo he calificado (peso > 0)
+  return list.filter(e => roomStore.trustMap.has(e.ratedBy))
+})
+
+const suspicion = computed(() => {
+  const stats = props.member?.peer?.queryStats
+  if (!stats) return null
+  if ((stats.queriesMade || 0) < 5) return null
+  const ratio = (stats.queriesKnown || 0) / stats.queriesMade
+  if (ratio >= 0.2) return null
+  return stats
+})
+
+const endorserName = (pubkey) => {
+  // Buscar entre los miembros visibles para tomar su nickname
+  const m = roomStore.members.find(x => x.pubkey === pubkey)
+  if (m) return m.peer?.nickname || m.nickname
+  // Fallback: pubkey corta
+  if (pubkey.length > 32) return pubkey.slice(0, 12) + '…'
+  return pubkey
+}
 
 const displayName = computed(() => {
   return props.member?.peer?.nickname || props.member?.nickname || ''
@@ -167,4 +208,19 @@ input, textarea { font-size: 16px; }
 .actions button { padding: 0.5rem 1.2rem; }
 .raw { margin-top: var(--spacing-md); color: var(--color-text-secondary); font-size: 0.8em; }
 .raw pre { white-space: pre-wrap; word-break: break-all; background: var(--color-surface-variant); padding: 0.5rem; border-radius: var(--border-radius-sm); }
+
+.endorsements { margin: var(--spacing-md) 0; border-top: 1px solid var(--color-border); padding-top: var(--spacing-md); }
+.endorsements h4 { margin: 0 0 var(--spacing-sm); font-size: 0.95em; color: var(--color-text-secondary); }
+.endorsements ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.4rem; font-size: 0.9em; }
+.endorsement-rating { color: #d49a00; font-weight: 600; margin-right: 0.4rem; }
+.endorsement-from { color: var(--color-text); }
+.endorsement-notes { color: var(--color-text-secondary); }
+.suspicion {
+  margin-top: var(--spacing-md);
+  padding: 0.6rem;
+  border-radius: var(--border-radius-sm);
+  background: rgba(220, 53, 69, 0.12);
+  color: #c0392b;
+  font-size: 0.85em;
+}
 </style>
