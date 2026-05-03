@@ -57,11 +57,29 @@ export const useRoomStore = defineStore('room', () => {
     }
   }
 
+  const ROOM_CAPACITY = 20
+
   // Actions
   const joinRoom = async (roomName) => {
     try {
       if (currentRoom.value) {
         await leaveRoom()
+      }
+
+      const targetChannel = `chat_room_${roomName}`
+
+      // Cap de capacidad: el chat es P2P-mesh con E2E por destinatario y
+      // handshake al entrar. >20 personas degrada CPU y UX. El proxy permite
+      // hasta 100 como hard cap, pero el chat impone su propio límite.
+      try {
+        const count = await connectionStore.wsProxyClient.channelCount(targetChannel)
+        if (count >= ROOM_CAPACITY) {
+          throw new Error(`Sala llena (máximo ${ROOM_CAPACITY} personas). Prueba otra.`)
+        }
+      } catch (e) {
+        // Si el error es el de capacidad, lo propagamos. Otros errores (timeout,
+        // método ausente) los toleramos: el cap del proxy de 100 actúa de fallback.
+        if (e?.message?.startsWith('Sala llena')) throw e
       }
 
       currentRoom.value = roomName
@@ -195,39 +213,47 @@ export const useRoomStore = defineStore('room', () => {
       return
     }
 
-    try {
-      // Get current tokens
-      const tokens = await connectionStore.wsProxyClient.listChannel(channelName.value)
-      const others = tokens.filter(t => t !== connectionStore.token)
+    const trimmed = text.trim()
 
-      if (others.length === 0) {
+    try {
+      // Solo destinatarios verificados (con encryptionPubkey conocida).
+      // Los demás peers verán el mensaje cuando completen el handshake.
+      const recipients = members.value
+        .filter(m => !m.isMe && m.token && m.encryptionPubkey)
+        .map(m => ({ token: m.token, encryptionPubkey: m.encryptionPubkey }))
+
+      if (recipients.length === 0) {
         messages.value.push({
           id: crypto.randomUUID(),
           from: 'system',
           type: 'system',
-          text: '(No other members in room)',
+          text: '(No hay miembros con identidad verificada para descifrar)',
           timestamp: Date.now()
         })
         return
       }
 
-      // Serialize and send
-      const msg = formatMessage('CHAT_MSG', {
-        text: text.trim(),
+      const id = await getIdentity()
+      if (!id) throw new Error('Identity vault no disponible — no se puede cifrar')
+
+      const envelope = await id.encrypt(recipients, trimmed)
+
+      const msg = formatMessage('CHAT_ENC', {
+        envelope,
         nickname: connectionStore.nickname,
         roomName: currentRoom.value,
         timestamp: Date.now()
       })
 
-      await connectionStore.sendMessage(others, msg)
+      await connectionStore.sendMessage(recipients.map(r => r.token), msg)
 
-      // Optimistic local echo
+      // Echo local (el remitente nunca cifra para sí mismo)
       messages.value.push({
         id: crypto.randomUUID(),
         from: connectionStore.token,
         nickname: connectionStore.nickname,
         type: 'chat',
-        text: text.trim(),
+        text: trimmed,
         timestamp: Date.now(),
         isMe: true
       })
@@ -238,7 +264,7 @@ export const useRoomStore = defineStore('room', () => {
         id: crypto.randomUUID(),
         from: 'system',
         type: 'system',
-        text: `Error sending message: ${error.message}`,
+        text: `Error enviando mensaje: ${error.message}`,
         timestamp: Date.now()
       })
     }
@@ -251,7 +277,11 @@ export const useRoomStore = defineStore('room', () => {
     if (!payload) return
 
     switch (type) {
+      case 'CHAT_ENC':
+        handleEncryptedChatMessage(fromToken, payload)
+        break
       case 'CHAT_MSG':
+        // Compatibilidad legacy con clientes pre-E2E (descartar en producción).
         handleChatMessage(fromToken, payload)
         break
       case 'JOIN_ANNOUNCE':
@@ -317,6 +347,7 @@ export const useRoomStore = defineStore('room', () => {
       const member = members.value.find(m => m.token === fromToken)
       if (member) {
         member.pubkey = result.publickey
+        member.encryptionPubkey = result.encryptionPubkey || payload.encryptionPubkey || null
         member.peer = result.peer || null
       }
       // Una vez verificado, intercambiar reputación del nuevo peer con el resto del cuarto
@@ -438,6 +469,59 @@ export const useRoomStore = defineStore('room', () => {
       if (m.pubkey === pubkey) m.peer = updated
     }
     return updated
+  }
+
+  const handleEncryptedChatMessage = async (fromToken, payload) => {
+    if (!payload?.envelope) return
+    if (payload.roomName && payload.roomName !== currentRoom.value) return
+
+    const id = await getIdentity()
+    if (!id) {
+      console.warn('Identity vault no disponible: no se puede descifrar el mensaje')
+      return
+    }
+
+    const sender = members.value.find(m => m.token === fromToken)
+    const senderEncryptionPubkey = sender?.encryptionPubkey
+    if (!senderEncryptionPubkey) {
+      console.warn(`No tengo encryptionPubkey de ${fromToken}; no se puede descifrar`)
+      return
+    }
+
+    let plaintext
+    try {
+      const result = await id.decrypt(senderEncryptionPubkey, connectionStore.token, payload.envelope)
+      plaintext = result.plaintext
+    } catch (e) {
+      console.warn('Failed to decrypt incoming message:', e)
+      return
+    }
+
+    const sanitizedNickname = sanitizeNickname(payload.nickname)
+    const sanitizedText = sanitizeMessage(plaintext)
+
+    const member = members.value.find(m => m.token === fromToken)
+    if (member) {
+      if (sanitizedNickname) member.nickname = sanitizedNickname
+      member.lastSeen = Date.now()
+    } else {
+      members.value.push({
+        token: fromToken,
+        nickname: sanitizedNickname || fromToken,
+        lastSeen: Date.now(),
+        isMe: false
+      })
+    }
+
+    messages.value.push({
+      id: crypto.randomUUID(),
+      from: fromToken,
+      nickname: sanitizedNickname || (member?.nickname || fromToken),
+      type: 'chat',
+      text: sanitizedText,
+      timestamp: payload.timestamp || Date.now(),
+      isMe: false
+    })
   }
 
   const handleChatMessage = (fromToken, payload) => {
