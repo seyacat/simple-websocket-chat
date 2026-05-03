@@ -10,7 +10,9 @@ Aplicación de chat multi-sala P2P-mesh sobre el proxy WebSocket de Closer Click
 - **Sin host por sala**: todos los miembros son peers iguales, publicados en `chat_room_<nombre>`.
 - **Real-time**: el proxy emite `joined` / `left` / `disconnected` a los miembros del canal.
 - **Identidad cross-app** vía vault (mismo keypair en chat, chess, etc.).
+- **End-to-end encryption** por destinatario: cada mensaje viaja como envelope ECDH(P-256) + AES-256-GCM. El proxy nunca ve plaintext.
 - **Reputación firmada** con web of trust: ratings firmados con ECDSA P-256 que se intercambian automáticamente entre peers de una sala.
+- **Cap de 20 personas por sala**: límite enforce en cliente (UX y CPU al hacer 19+ handshakes); el proxy mantiene su cap de 100 como fallback.
 - **Mobile responsive** con vistas single-pane intercambiables (rooms / chat / members).
 - **Tema claro/oscuro** según preferencia del sistema.
 
@@ -18,8 +20,8 @@ Aplicación de chat multi-sala P2P-mesh sobre el proxy WebSocket de Closer Click
 
 ```jsonc
 {
-  "@gatoseya/closer-click-proxy-client": "^0.1.1",
-  "@gatoseya/closer-click-identity":     "^0.4.0",
+  "@gatoseya/closer-click-proxy-client": "^0.2.0",
+  "@gatoseya/closer-click-identity":     "^0.5.0",
   "vue": "^3", "pinia": "^3"
 }
 ```
@@ -55,14 +57,32 @@ Wire format: `TYPE|JSON_PAYLOAD` viajando como `message` dentro del envelope del
 
 | Type | Dirección | Propósito |
 |------|-----------|-----------|
-| `CHAT_MSG` | peer → peers | Mensaje de chat |
+| `CHAT_ENC` | peer → peers verificados | Mensaje cifrado E2E (envelope `{iv, ct, wrap}`) |
+| `CHAT_MSG` | (legacy) | Solo se acepta; nunca se emite. |
 | `JOIN_ANNOUNCE` | newcomer → existing | "Acabo de entrar" |
 | `LEAVE_ANNOUNCE` | leaver → peers | "Me voy" |
 | `HEARTBEAT` / `HEARTBEAT_ACK` | all → all | Mantener visibilidad |
 | `IDENTIFY_CHALLENGE` | a un peer | Reto firmado para verificar identidad |
-| `IDENTIFY_RESPONSE` | reply | Firma + pubkey |
+| `IDENTIFY_RESPONSE` | reply | Firma + pubkey + **encryptionPubkey** |
 | `RATING_QUERY` | broadcast en sala | "¿qué saben de este pubkey?" |
 | `RATING_REPLY` | reply | Mi rating + endorsements firmadas |
+
+### End-to-end encryption
+
+Tras `IDENTIFY_RESPONSE` cada miembro guarda el `encryptionPubkey` ECDH del peer. Al enviar un mensaje:
+
+1. El emisor genera una clave AES-256-GCM efímera `k` y un IV.
+2. Cifra el plaintext con `k` (un solo `ciphertext`).
+3. Para cada destinatario verificado, deriva `ECDH(myPriv, peerEncPub)` y envuelve `k` con esa clave (segundo AES-GCM con IV propio).
+4. Emite `CHAT_ENC|{ envelope: {v:1, iv, ct, wrap}, nickname, roomName, ts }` al proxy con `to: [tokens verificados]`.
+
+El receptor:
+
+1. Toma `wrap[myToken]` para extraer su copia envuelta de `k`.
+2. Deriva `ECDH(myPriv, senderEncPub)` y descifra `k`.
+3. Descifra `ct` con `k` → plaintext.
+
+Forward-secrecy a nivel de mensaje (cada `k` es nueva). Miembros sin handshake completo (`encryptionPubkey` ausente) son omitidos del `wrap`; recibirán mensajes futuros una vez verificados.
 
 ### Web of trust
 
