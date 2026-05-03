@@ -22,12 +22,19 @@ export const useConnectionStore = defineStore('connection', () => {
     try {
       connectionError.value = null
       wsProxyClient.updateConfig({ url: wsUrl.value })
-      await wsProxyClient.connect()
 
+      // Registrar handlers ANTES de connect para no perder el primer
+      // evento 'token' que el lib emite al recibir el frame `connected`.
       if (!handlersSetup) {
         setupProxyEventHandlers()
         handlersSetup = true
       }
+
+      const assignedToken = await wsProxyClient.connect()
+
+      // Defensa extra por si alguna implementación futura emite token antes
+      // del registro (no debería pasar con el orden de arriba).
+      if (assignedToken && !token.value) token.value = assignedToken
 
       isConnected.value = true
     } catch (error) {
